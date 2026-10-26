@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Review Queue{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Review Queue</h1>
+    <p class="subtitle">Drafts are written by {{ agent_name }}, {{ company_name }}'s outreach agent. Nothing sends until you approve it here.</p>
+  </div>
+</div>
+
+{% if smtp_configured %}
+<div class="smtp-banner smtp-live">
+  <strong>Live sending is on.</strong> Checking "Actually send" on a draft below will email it for real over SMTP.
+</div>
+{% else %}
+<div class="smtp-banner smtp-off">
+  <strong>Live sending isn't configured.</strong> Approving a draft just logs it -- no email leaves this machine. See <code>README.md</code> to connect a real SMTP account.
+</div>
+{% endif %}
+
+<div class="grid grid-2">
+  <div>
+    <h2>Pending drafts {% if drafts %}({{ drafts|length }}){% endif %}</h2>
+    {% if drafts %}
+      {% for d in drafts %}
+      <div class="draft-card">
+        <div class="draft-head">
+          <div>
+            <div class="title">
+              {{ d.company_name }}
+              <span class="muted small">&middot;
+                {% if d.kind == 'handoff' %}warm handoff to {{ human_name }}
+                {% elif d.kind == 'checkin' %}3-month check-in
+                {% elif d.kind == 'conversation' %}reply in conversation
+                {% else %}touch #{{ d.touch_number }}
+                {% endif %}
+              </span>
+            </div>
+            <div class="meta">
+              {% if d.kind == 'handoff' %}<span class="handoff-tag">Handoff</span>{% endif %}
+              {% if d.kind == 'checkin' %}<span class="checkin-tag">Check-in</span>{% endif %}
+              {% if d.kind == 'conversation' %}<span class="reply-tag">Reply</span>{% endif %}
+              {% if d.is_stub %}
+                <span class="stub-tag">Placeholder</span>
+              {% else %}
+                <span class="ai-tag">AI drafted</span>
+              {% endif %}
+              {{ agent_name }} drafted this {{ d.created_at[:16].replace('T', ' ') }}
+            </div>
+          </div>
+          <a href="{{ url_for('company_detail', company_id=d.company_id) }}" class="btn btn-ghost btn-sm">View company</a>
+        </div>
+
+        {% if d.variant_options|length > 1 %}
+        <div class="variant-picker" id="variants-{{ d.id }}">
+          <span class="variant-picker-label">{{ d.variant_options|length }} options from {{ agent_name }}:</span>
+          {% for v in d.variant_options %}
+          <button type="button"
+                  class="variant-pill {% if loop.index0 == d.selected_index %}active{% endif %}"
+                  onclick="selectVariant({{ d.id }}, {{ loop.index0 }})">{{ v.label }}</button>
+          {% endfor %}
+        </div>
+        <script type="application/json" id="variant-data-{{ d.id }}">{{ d.variant_options | tojson }}</script>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('queue_action', touch_id=d.id) }}">
+          <label>Subject</label>
+          <input type="text" name="subject" id="subject-{{ d.id }}" value="{{ d.subject }}">
+          <label>Body</label>
+          <textarea name="body" id="body-{{ d.id }}" rows="7">{{ d.body }}</textarea>
+
+          {% if smtp_configured and d.company_email %}
+          <label class="checkbox-row">
+            <input type="checkbox" name="really_send" value="1">
+            <span>Actually send this to <strong>{{ d.company_email }}</strong> over email (not just log it)</span>
+          </label>
+          {% elif smtp_configured %}
+          <p class="muted small" style="margin: -6px 0 14px;">No contact email on file for {{ d.company_name }} -- add one to send for real.</p>
+          {% endif %}
+
+          <div class="form-actions">
+            <button type="submit" name="action" value="approve" class="btn btn-primary"
+                    onclick="return confirmSend(this)">
+              {% if d.kind == 'handoff' %}Approve & send handoff
+              {% elif d.kind == 'checkin' %}Approve & send check-in
+              {% elif d.kind == 'conversation' %}Approve & send reply
+              {% else %}Approve & mark sent
+              {% endif %}
+            </button>
+            <button type="submit" name="action" value="save" class="btn">Save edits</button>
+            <button type="submit" name="action" value="discard" class="btn btn-danger"
+                    onclick="return confirm('Discard this draft?')">Discard</button>
+          </div>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="card empty-state">
+        <div class="big-icon">✉</div>
+        <p>No drafts waiting on you right now.</p>
+      </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <h2>Due for a touch, no draft yet {% if due_without_draft %}({{ due_without_draft|length }}){% endif %}</h2>
+    {% if due_without_draft %}
+      {% for c in due_without_draft %}
+      <div class="due-row">
+        <div>
+          <div class="company-name">{{ c.name }}</div>
+          <div class="cell-sub">
+            Next touch: {{ c.next_touch_date }}
+            <span class="due-badge due-{{ 'overdue' if c.due_status=='overdue' else ('today' if c.due_status=='due_today' else 'week') }}">
+              {{ {'overdue':'Overdue','due_today':'Due today','due_this_week':'This week'}[c.due_status] }}
+            </span>
+          </div>
+        </div>
+        <form method="post" action="{{ url_for('generate_draft', company_id=c.id) }}">
+          <button type="submit" class="btn btn-primary btn-sm">Generate draft</button>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="card empty-state">
+        <div class="big-icon">◎</div>
+        <p>Everyone due for a touch already has a draft queued.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

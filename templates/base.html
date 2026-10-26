@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}BDR Dana{% endblock %} &middot; Deal Sourcing CRM</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">B</span>
+      <span class="brand-name">BDR Dana</span>
+    </div>
+    <nav class="nav">
+      <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <span class="nav-icon">◱</span> Dashboard
+      </a>
+      <a href="{{ url_for('companies_list') }}" class="nav-link {% if request.endpoint in ['companies_list','company_detail'] %}active{% endif %}">
+        <span class="nav-icon">▤</span> Companies
+      </a>
+      <a href="{{ url_for('review_queue') }}" class="nav-link {% if request.endpoint == 'review_queue' %}active{% endif %}">
+        <span class="nav-icon">✉</span> Review Queue
+        {% if pending_count %}<span class="nav-badge">{{ pending_count }}</span>{% endif %}
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <p class="muted small">{{ agent_name }} drafts outreach for {{ company_name }}.<br>Draft-and-approve. Nothing auto-sends.</p>
+    </div>
+  </aside>
+
+  <main class="main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack">
+          {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

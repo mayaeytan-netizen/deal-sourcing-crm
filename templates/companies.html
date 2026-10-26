@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Companies{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Companies</h1>
+    <p class="subtitle">{{ companies|length }} shown</p>
+  </div>
+  <div style="display:flex; gap:10px;">
+    <a class="btn" href="{{ url_for('export_companies', stage=stage_filter, q=q, sort=sort) }}">Export to Excel</a>
+    <button class="btn" onclick="toggleModal('importModal')">Import from Excel</button>
+    <button class="btn btn-primary" onclick="toggleModal('addModal')">+ Add Company</button>
+  </div>
+</div>
+
+<form class="toolbar" method="get">
+  <select name="stage" onchange="this.form.submit()">
+    <option value="">All stages</option>
+    {% for s in stages %}
+    <option value="{{ s }}" {% if stage_filter == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  <select name="sort" onchange="this.form.submit()">
+    <option value="next_touch" {% if sort == 'next_touch' %}selected{% endif %}>Sort: Next touch</option>
+    <option value="last_touch" {% if sort == 'last_touch' %}selected{% endif %}>Sort: Last touch</option>
+    <option value="name" {% if sort == 'name' %}selected{% endif %}>Sort: Name</option>
+    <option value="stage" {% if sort == 'stage' %}selected{% endif %}>Sort: Stage</option>
+  </select>
+  <input type="search" name="q" placeholder="Search name or contact..." value="{{ q }}">
+  <button type="submit" class="btn btn-sm">Filter</button>
+  {% if stage_filter or q %}<a href="{{ url_for('companies_list') }}" class="btn btn-ghost btn-sm">Clear</a>{% endif %}
+</form>
+
+<div class="card" style="padding:0;">
+  {% if companies %}
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th>Stage</th>
+        <th>Next touch</th>
+        <th>Last touch</th>
+        <th>Touches</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in companies %}
+      <tr class="row-link" onclick="window.location='{{ url_for('company_detail', company_id=c.id) }}'">
+        <td>
+          <div class="company-name">{{ c.name }}</div>
+          {% if c.contact_name %}<div class="cell-sub">{{ c.contact_name }}</div>{% endif %}
+        </td>
+        <td>
+          <span class="badge" style="color: {{ stage_colors[c.stage] }}; background: {{ stage_colors[c.stage] }}22;">
+            <span class="badge-dot"></span>{{ c.stage }}
+          </span>
+        </td>
+        <td>
+          {% if c.next_touch_date %}
+            {{ c.next_touch_date }}
+            <div class="cell-sub">
+              <span class="due-badge due-{{ 'overdue' if c.due_status=='overdue' else ('today' if c.due_status=='due_today' else ('week' if c.due_status=='due_this_week' else 'scheduled')) }}">
+                {{ {'overdue':'Overdue','due_today':'Due today','due_this_week':'This week','scheduled':'Scheduled'}[c.due_status] }}
+              </span>
+            </div>
+          {% else %}
+            <span class="muted">&mdash;</span>
+          {% endif %}
+        </td>
+        <td>{{ c.last_touch_date or '—' }}</td>
+        <td>{{ c.total_touches }}</td>
+        <td onclick="event.stopPropagation()">
+          <a href="{{ url_for('company_detail', company_id=c.id) }}" class="btn btn-ghost btn-sm">Open</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="big-icon">▤</div>
+    <p>No companies match these filters.</p>
+  </div>
+  {% endif %}
+</div>
+
+<div class="modal-backdrop" id="addModal" onclick="closeModalOnBackdrop(event, 'addModal')">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 style="margin:0;">Add company</h2>
+      <button class="btn btn-ghost btn-sm" onclick="toggleModal('addModal')">Close</button>
+    </div>
+    <form method="post" action="{{ url_for('create_company') }}">
+      <label>Company name</label>
+      <input type="text" name="name" required placeholder="e.g. Meridian Property Group">
+      <div class="field-row">
+        <div>
+          <label>Contact name (optional)</label>
+          <input type="text" name="contact_name" placeholder="e.g. Dana Whitfield">
+        </div>
+        <div>
+          <label>Contact email (optional)</label>
+          <input type="email" name="contact_email" placeholder="dana@company.com">
+        </div>
+      </div>
+      <label>Website / notes link</label>
+      <input type="text" name="website" placeholder="company.com">
+      <label>Notes (used by the drafting agent &mdash; the more specific, the better)</label>
+      <textarea name="notes" placeholder="What they do, size, any relevant context..."></textarea>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary btn-block">Add to pipeline</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="importModal" onclick="closeModalOnBackdrop(event, 'importModal')">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 style="margin:0;">Import from Excel</h2>
+      <button class="btn btn-ghost btn-sm" onclick="toggleModal('importModal')">Close</button>
+    </div>
+    <form method="post" action="{{ url_for('import_companies') }}" enctype="multipart/form-data">
+      <label>File (.xlsx or .csv)</label>
+      <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required>
+      <p class="muted small" style="margin: -6px 0 16px;">
+        First row should be column headers. Only a company name column is required &mdash;
+        <strong>Company</strong> (or Name). Optional columns: <strong>Contact Name</strong>,
+        <strong>Contact Email</strong>, <strong>Website</strong>, <strong>Notes</strong>,
+        <strong>Stage</strong>. Column names are matched loosely, so close variations work too.
+      </p>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary btn-block">Import companies</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

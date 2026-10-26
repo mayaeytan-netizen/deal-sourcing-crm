@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="subtitle">{{ total_companies }} companies in pipeline &middot; {{ total_sent }} touches sent all-time</p>
+  </div>
+  <div style="display:flex; gap:10px; align-items:center;">
+    {% if imap_configured %}
+      <form method="post" action="{{ url_for('check_replies_now') }}">
+        <button type="submit" class="btn btn-sm" title="Also checks automatically every {{ inbox_poll_seconds }}s">Check inbox now</button>
+      </form>
+    {% endif %}
+    <a href="{{ url_for('review_queue') }}" class="btn btn-primary">Go to Review Queue{% if pending_drafts %} ({{ pending_drafts }}){% endif %}</a>
+  </div>
+</div>
+
+{% if imap_configured %}
+<p class="muted small" style="margin: -14px 0 16px;">Auto-checking your inbox for replies every {{ inbox_poll_seconds }}s.</p>
+{% endif %}
+
+{% if needs_response %}
+<div class="card needs-response-card" style="margin-bottom: 16px;">
+  <h2>Needs a response ({{ needs_response|length }})</h2>
+  <p class="subtitle" style="margin-top:-8px; margin-bottom:14px;">
+    These companies replied. {{ agent_name }} can keep the conversation going on your behalf, still draft-and-approve.
+  </p>
+  {% for n in needs_response %}
+  <div class="due-row">
+    <div>
+      <div class="company-name">
+        <a href="{{ url_for('company_detail', company_id=n.id) }}">{{ n.name }}</a>
+        <span class="badge" style="color: {{ stage_colors[n.stage] }}; background: {{ stage_colors[n.stage] }}22; margin-left:8px;">
+          <span class="badge-dot"></span>{{ n.stage }}
+        </span>
+      </div>
+      {% if n.reply_snippet %}
+      <div class="dash-reply-label"><span class="reply-arrow">&#8617;</span> they said:</div>
+      <div class="cell-sub">&ldquo;{{ n.reply_snippet }}{% if n.reply_snippet|length >= 140 %}...{% endif %}&rdquo;</div>
+      {% endif %}
+    </div>
+    {% if n.has_draft %}
+      <a href="{{ url_for('review_queue') }}" class="btn btn-sm">Draft waiting in queue</a>
+    {% else %}
+      <form method="post" action="{{ url_for('generate_response', company_id=n.id) }}">
+        <button type="submit" class="btn btn-primary btn-sm">Generate response</button>
+      </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="grid grid-4" style="margin-bottom: 16px;">
+  <div class="stat-tile accent-red">
+    <div class="stat-label">Overdue</div>
+    <div class="stat-value">{{ due_counts.overdue }}</div>
+    <div class="stat-sub">past their next-touch date</div>
+  </div>
+  <div class="stat-tile accent-amber">
+    <div class="stat-label">Due today</div>
+    <div class="stat-value">{{ due_counts.due_today }}</div>
+    <div class="stat-sub">touch due right now</div>
+  </div>
+  <div class="stat-tile accent-blue">
+    <div class="stat-label">Due this week</div>
+    <div class="stat-value">{{ due_counts.due_this_week }}</div>
+    <div class="stat-sub">coming up in 7 days</div>
+  </div>
+  <div class="stat-tile accent-green">
+    <div class="stat-label">Response rate</div>
+    <div class="stat-value">{{ response_rate }}%</div>
+    <div class="stat-sub">{{ total_replies }} of {{ total_sent }} touches replied to</div>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>Pipeline funnel</h2>
+    <div class="chart-wrap" style="height: 300px;">
+      <canvas id="funnelChart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Weekly outreach volume</h2>
+    <div class="chart-wrap" style="height: 300px;">
+      <canvas id="volumeChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <h2>Stage breakdown</h2>
+  <table>
+    <thead><tr><th>Stage</th><th>Companies</th><th></th></tr></thead>
+    <tbody>
+      {% for stage, count in funnel.items() %}
+      <tr>
+        <td>
+          <span class="badge" style="color: {{ stage_colors[stage] }}; background: {{ stage_colors[stage] }}22;">
+            <span class="badge-dot"></span>{{ stage }}
+          </span>
+        </td>
+        <td>{{ count }}</td>
+        <td><a href="{{ url_for('companies_list', stage=stage) }}" class="muted small">View &rarr;</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+const textDim = '#5c5747';
+const gridColor = '#e7e0c9';
+Chart.defaults.color = textDim;
+Chart.defaults.font.family = "Inter, -apple-system, sans-serif";
+
+new Chart(document.getElementById('funnelChart'), {
+  type: 'bar',
+  data: {
+    labels: {{ funnel.keys() | list | tojson }},
+    datasets: [{
+      data: {{ funnel.values() | list | tojson }},
+      backgroundColor: {{ funnel_colors | tojson }},
+      borderRadius: 6,
+      maxBarThickness: 36,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: gridColor } },
+      y: { grid: { display: false }, ticks: { autoSkip: false } }
+    }
+  }
+});
+
+new Chart(document.getElementById('volumeChart'), {
+  type: 'line',
+  data: {
+    labels: {{ week_labels | tojson }},
+    datasets: [{
+      label: 'Touches sent',
+      data: {{ week_values | tojson }},
+      borderColor: '#006956',
+      backgroundColor: 'rgba(0,105,86,0.12)',
+      tension: 0.35,
+      fill: true,
+      pointRadius: 3,
+      pointBackgroundColor: '#006956',
+    }]
+  },
+  options: {
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: gridColor } }
+    }
+  }
+});
+</script>
+{% endblock %}

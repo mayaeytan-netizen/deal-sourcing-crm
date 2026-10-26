@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}{{ company.name }}{% endblock %}
+{% block content %}
+
+<a href="{{ url_for('companies_list') }}" class="back-link">&larr; All companies</a>
+
+<div class="detail-header">
+  <div>
+    <h1>{{ company.name }}</h1>
+    <p class="subtitle">
+      Added {{ company.date_added }}
+      {% if company.contact_name %} &middot; {{ company.contact_name }}{% endif %}
+      {% if company.contact_email %} &middot; {{ company.contact_email }}{% endif %}
+    </p>
+  </div>
+  <form method="post" action="{{ url_for('delete_company', company_id=company.id) }}"
+        onsubmit="return confirm('Delete {{ company.name }}? This removes its full touch history too.');">
+    <button type="submit" class="btn btn-danger btn-sm">Delete company</button>
+  </form>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>Details</h2>
+    <form method="post" action="{{ url_for('update_company', company_id=company.id) }}">
+      <label>Company name</label>
+      <input type="text" name="name" value="{{ company.name }}" required>
+      <div class="field-row">
+        <div>
+          <label>Contact name</label>
+          <input type="text" name="contact_name" value="{{ company.contact_name or '' }}">
+        </div>
+        <div>
+          <label>Contact email</label>
+          <input type="email" name="contact_email" value="{{ company.contact_email or '' }}">
+        </div>
+      </div>
+      <label>Website</label>
+      <input type="text" name="website" value="{{ company.website or '' }}">
+      <label>Pipeline stage</label>
+      <select name="stage">
+        {% for s in stages %}
+        <option value="{{ s }}" {% if company.stage == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <label>Notes (fuels the drafting agent)</label>
+      <textarea name="notes" rows="5">{{ company.notes or '' }}</textarea>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </div>
+    </form>
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Cadence</h2>
+      <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div class="stat-tile" style="padding:14px;">
+          <div class="stat-label">Next touch</div>
+          <div class="stat-value" style="font-size:18px;">{{ company.next_touch_date or '—' }}</div>
+          {% if company.next_touch_date %}
+          <div class="stat-sub">
+            <span class="due-badge due-{{ 'overdue' if company.due_status=='overdue' else ('today' if company.due_status=='due_today' else ('week' if company.due_status=='due_this_week' else 'scheduled')) }}">
+              {{ {'overdue':'Overdue','due_today':'Due today','due_this_week':'This week','scheduled':'Scheduled'}[company.due_status] }}
+            </span>
+          </div>
+          {% endif %}
+        </div>
+        <div class="stat-tile" style="padding:14px;">
+          <div class="stat-label">Total touches</div>
+          <div class="stat-value" style="font-size:18px;">{{ company.total_touches }}</div>
+          <div class="stat-sub">last sent {{ company.last_touch_date or 'never' }}</div>
+        </div>
+      </div>
+      {% if company.due_status in ('overdue','due_today','due_this_week') and not company.is_inactive %}
+      <form method="post" action="{{ url_for('generate_draft', company_id=company.id) }}" style="margin-top:14px;">
+        <button type="submit" class="btn btn-primary btn-block">
+          {% if company.stage == 'Declined' %}Generate check-in &rarr;
+          {% elif company.total_touches == 0 %}Generate first outreach &rarr;
+          {% else %}Generate next draft &rarr;
+          {% endif %}
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if company.awaiting_response %}
+    <div class="card needs-response-card" style="margin-bottom:16px;">
+      <h2>Needs a response</h2>
+      <p class="subtitle" style="margin-top:-6px;">They replied. {{ agent_name }} can draft the next message, still your call to send it.</p>
+      {% if has_pending_draft %}
+        <a href="{{ url_for('review_queue') }}" class="btn btn-block">Draft waiting in review queue &rarr;</a>
+      {% else %}
+        <form method="post" action="{{ url_for('generate_response', company_id=company.id) }}">
+          <button type="submit" class="btn btn-primary btn-block">Generate response &rarr;</button>
+        </form>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Touch history</h2>
+      {% if touches %}
+        {% for t in touches %}
+        <div class="touch-item">
+          <div class="touch-item-head">
+            {% if t.kind == 'handoff' %}
+              <span class="handoff-tag">Handoff</span>
+            {% elif t.kind == 'checkin' %}
+              <span class="checkin-tag">Check-in</span>
+            {% elif t.kind == 'conversation' %}
+              <span class="reply-tag">Reply</span>
+            {% else %}
+              <span class="touch-number">TOUCH #{{ t.touch_number }}</span>
+            {% endif %}
+            <span class="touch-date">{{ t.sent_at[:10] if t.sent_at else 'pending review' }}</span>
+            {% if t.got_reply %}<span class="reply-pill">Replied</span>{% endif %}
+          </div>
+
+          {% if t.status == 'pending_review' %}
+            <div class="meta" style="margin-bottom:12px;">
+              {% if t.is_stub %}
+                <span class="stub-tag">Placeholder</span>
+              {% else %}
+                <span class="ai-tag">AI drafted</span>
+              {% endif %}
+              awaiting your review &mdash; not sent yet
+            </div>
+
+            {% if t.variant_options|length > 1 %}
+            <div class="variant-picker" id="variants-{{ t.id }}">
+              <span class="variant-picker-label">{{ t.variant_options|length }} options from {{ agent_name }}:</span>
+              {% for v in t.variant_options %}
+              <button type="button"
+                      class="variant-pill {% if loop.index0 == t.selected_index %}active{% endif %}"
+                      onclick="selectVariant({{ t.id }}, {{ loop.index0 }})">{{ v.label }}</button>
+              {% endfor %}
+            </div>
+            <script type="application/json" id="variant-data-{{ t.id }}">{{ t.variant_options | tojson }}</script>
+            {% endif %}
+
+            <form method="post" action="{{ url_for('queue_action', touch_id=t.id) }}">
+              <label>Subject</label>
+              <input type="text" name="subject" id="subject-{{ t.id }}" value="{{ t.subject }}">
+              <label>Body</label>
+              <textarea name="body" id="body-{{ t.id }}" rows="7">{{ t.body }}</textarea>
+
+              {% if smtp_configured and company.contact_email %}
+              <label class="checkbox-row">
+                <input type="checkbox" name="really_send" value="1">
+                <span>Actually send this to <strong>{{ company.contact_email }}</strong> over email (not just log it)</span>
+              </label>
+              {% elif smtp_configured %}
+              <p class="muted small" style="margin: -6px 0 14px;">No contact email on file &mdash; add one above to send for real.</p>
+              {% endif %}
+
+              <div class="form-actions">
+                <button type="submit" name="action" value="approve" class="btn btn-primary"
+                        onclick="return confirmSend(this)">
+                  {% if t.kind == 'handoff' %}Approve & send handoff
+                  {% elif t.kind == 'checkin' %}Approve & send check-in
+                  {% elif t.kind == 'conversation' %}Approve & send reply
+                  {% else %}Approve & mark sent
+                  {% endif %}
+                </button>
+                <button type="submit" name="action" value="save" class="btn">Save edits</button>
+                <button type="submit" name="action" value="discard" class="btn btn-danger"
+                        onclick="return confirm('Discard this draft?')">Discard</button>
+              </div>
+            </form>
+          {% else %}
+            <div class="touch-subject">{{ t.subject }}</div>
+            <div class="touch-body">{{ t.body }}</div>
+            {% if t.reply_text %}
+            <div class="touch-reply-block">
+              <div class="touch-reply-label">
+                <span class="reply-arrow">&#8617;</span> {{ company.contact_name or 'They' }} replied
+              </div>
+              <div class="touch-reply-quote">{{ t.reply_text }}</div>
+            </div>
+            {% endif %}
+            {% if t.got_reply %}
+            <form method="post" action="{{ url_for('toggle_reply', touch_id=t.id) }}" style="margin-top:8px;">
+              <button type="submit" class="btn btn-ghost btn-sm">Unmark reply</button>
+            </form>
+            {% else %}
+            <details class="reply-toggle" style="margin-top:8px;">
+              <summary class="btn btn-ghost btn-sm">Mark got a reply</summary>
+              <form method="post" action="{{ url_for('toggle_reply', touch_id=t.id) }}" style="margin-top:10px;">
+                <label>What did they say? (optional &mdash; lets {{ agent_name }} keep the conversation going)</label>
+                <textarea name="reply_text" rows="3" placeholder="Paste what they said..."></textarea>
+                <button type="submit" class="btn btn-primary btn-sm">Log reply</button>
+              </form>
+            </details>
+            {% endif %}
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted">No touches logged yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}
